@@ -12,16 +12,25 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +51,12 @@ class EmailServiceIntegrationTest {
         emailService = new EmailService(
                 emailRepository,
                 mailSender
+        );
+
+        ReflectionTestUtils.setField(
+                emailService,
+                "maxAttempts",
+                0
         );
 
         savedSnapshots = new ArrayList<>();
@@ -68,7 +83,7 @@ class EmailServiceIntegrationTest {
 
         EmailData initial = savedSnapshots.get(0);
 
-        assertEquals(EmailStatus.PENDING, initial.getStatus());
+        assertEquals(EmailStatus.FAILED, initial.getStatus());
         assertEquals(0, initial.getAttemptCount());
         assertNull(initial.getErrorMessage());
         assertNull(initial.getLastAttemptAt());
@@ -170,8 +185,7 @@ class EmailServiceIntegrationTest {
 
         Instant previousAttempt = failed.getLastAttemptAt();
 
-        when(emailRepository.findAllByStatus(EmailStatus.FAILED))
-                .thenReturn(List.of(failed));
+        mockFailedEmails(failed);
 
         emailService.retryFailedEmails();
 
@@ -191,8 +205,7 @@ class EmailServiceIntegrationTest {
     void shouldUpdateErrorAfterFailedRetry() {
         EmailData failed = createFailedEmail();
 
-        when(emailRepository.findAllByStatus(EmailStatus.FAILED))
-                .thenReturn(List.of(failed));
+        mockFailedEmails(failed);
 
         doThrow(new MailSendException("Still unavailable"))
                 .when(mailSender)
@@ -219,8 +232,7 @@ class EmailServiceIntegrationTest {
         EmailData second = createFailedEmail();
         second.setId("second");
 
-        when(emailRepository.findAllByStatus(EmailStatus.FAILED))
-                .thenReturn(List.of(first, second));
+        mockFailedEmails(first, second);
 
         emailService.retryFailedEmails();
 
@@ -242,8 +254,7 @@ class EmailServiceIntegrationTest {
         EmailData second = createFailedEmail();
         second.setId("second");
 
-        when(emailRepository.findAllByStatus(EmailStatus.FAILED))
-                .thenReturn(List.of(first, second));
+        mockFailedEmails(first, second);
 
         doThrow(new MailSendException("First failed"))
                 .doNothing()
@@ -261,12 +272,15 @@ class EmailServiceIntegrationTest {
 
     @Test
     void shouldDoNothingWhenNoFailedEmailsExist() {
-        when(emailRepository.findAllByStatus(EmailStatus.FAILED))
-                .thenReturn(List.of());
+        when(emailRepository.findAllByStatus(
+                eq(EmailStatus.FAILED),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
 
         emailService.retryFailedEmails();
 
         verifyNoInteractions(mailSender);
+
         verify(emailRepository, never())
                 .save(any(EmailData.class));
     }
@@ -300,10 +314,27 @@ class EmailServiceIntegrationTest {
     }
 
     @Test
+    void shouldRejectInvalidEmailAddress() {
+        EmailMessage message = EmailMessage.builder()
+                .recipient("invalid-email")
+                .subject("Subject")
+                .content("Content")
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> emailService.sendEmail(message)
+        );
+
+        verifyNoInteractions(mailSender);
+        verifyNoInteractions(emailRepository);
+    }
+
+    @Test
     void shouldRejectBlankSubject() {
         EmailMessage message = EmailMessage.builder()
                 .recipient("test@example.com")
-                .subject("  ")
+                .subject("   ")
                 .content("Content")
                 .build();
 
@@ -334,9 +365,28 @@ class EmailServiceIntegrationTest {
     }
 
     @Test
+    void shouldRejectBlankContent() {
+        EmailMessage message = EmailMessage.builder()
+                .recipient("test@example.com")
+                .subject("Subject")
+                .content("   ")
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> emailService.sendEmail(message)
+        );
+
+        verifyNoInteractions(mailSender);
+        verifyNoInteractions(emailRepository);
+    }
+
+    @Test
     void shouldNotSendIfInitialSaveFails() {
         when(emailRepository.save(any(EmailData.class)))
-                .thenThrow(new RuntimeException("Elasticsearch unavailable"));
+                .thenThrow(
+                        new RuntimeException("Elasticsearch unavailable")
+                );
 
         assertThrows(
                 RuntimeException.class,
@@ -344,6 +394,145 @@ class EmailServiceIntegrationTest {
         );
 
         verifyNoInteractions(mailSender);
+    }
+
+    @Test
+    void shouldStopRetryingAfterMaximumAttempts() {
+        ReflectionTestUtils.setField(
+                emailService,
+                "maxAttempts",
+                2
+        );
+
+        EmailData failed = createFailedEmail();
+        failed.setAttemptCount(2);
+
+        when(emailRepository.findAllByStatus(
+                eq(EmailStatus.FAILED),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(failed)));
+
+        emailService.retryFailedEmails();
+
+        assertEquals(EmailStatus.FAILED, failed.getStatus());
+        assertEquals(2, failed.getAttemptCount());
+
+        verifyNoInteractions(mailSender);
+
+        verify(emailRepository, never())
+                .save(any(EmailData.class));
+    }
+
+    @Test
+    void shouldRetryWhenBelowMaximumAttempts() {
+        ReflectionTestUtils.setField(
+                emailService,
+                "maxAttempts",
+                2
+        );
+
+        EmailData failed = createFailedEmail();
+
+        mockFailedEmails(failed);
+
+        emailService.retryFailedEmails();
+
+        assertEquals(EmailStatus.SENT, failed.getStatus());
+        assertEquals(2, failed.getAttemptCount());
+
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void shouldRetryWithoutLimitByDefault() {
+        EmailData failed = createFailedEmail();
+        failed.setAttemptCount(100);
+
+        mockFailedEmails(failed);
+
+        emailService.retryFailedEmails();
+
+        assertEquals(EmailStatus.SENT, failed.getStatus());
+        assertEquals(101, failed.getAttemptCount());
+
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void shouldReturnPaginatedEmails() {
+        EmailData email = createFailedEmail();
+
+        Page<EmailData> expected = new PageImpl<>(
+                List.of(email),
+                PageRequest.of(1, 20),
+                21
+        );
+
+        when(emailRepository.findAll(PageRequest.of(1, 20)))
+                .thenReturn(expected);
+
+        Page<EmailData> result = emailService.findAll(1, 20);
+
+        assertEquals(1, result.getContent().size());
+        assertEquals(21, result.getTotalElements());
+        assertEquals(1, result.getNumber());
+        assertEquals(20, result.getSize());
+
+        verify(emailRepository)
+                .findAll(PageRequest.of(1, 20));
+    }
+
+    @Test
+    void shouldRejectInvalidPagination() {
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> emailService.findAll(-1, 20)
+        );
+
+        assertEquals(
+                HttpStatus.BAD_REQUEST,
+                exception.getStatusCode()
+        );
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> emailService.findAll(0, 0)
+        );
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> emailService.findAll(0, 101)
+        );
+
+        verifyNoInteractions(emailRepository);
+    }
+
+    @Test
+    void shouldReturnNotFoundForMissingEmail() {
+        when(emailRepository.findById("missing-id"))
+                .thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> emailService.findById("missing-id")
+        );
+
+        assertEquals(
+                HttpStatus.NOT_FOUND,
+                exception.getStatusCode()
+        );
+    }
+
+    private void mockFailedEmails(EmailData... emails) {
+        when(emailRepository.findAllByStatus(
+                eq(EmailStatus.FAILED),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(emails)));
+
+        for (EmailData email : emails) {
+            when(emailRepository.findById(email.getId()))
+                    .thenReturn(Optional.of(email));
+        }
     }
 
     private EmailMessage createMessage() {

@@ -1,3 +1,4 @@
+
 package org.example.block5;
 
 import org.example.block5.data.EmailData;
@@ -10,13 +11,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.http.HttpStatus;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.server.ResponseStatusException;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -33,7 +37,8 @@ import static org.mockito.Mockito.*;
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.rabbitmq.listener.direct.auto-startup=false",
         "spring.task.scheduling.enabled=false",
-        "spring.mail.host=localhost"
+        "spring.mail.host=localhost",
+        "email.retry.max-attempts=0"
 })
 class EmailElasticsearchIntegrationTest {
 
@@ -135,6 +140,11 @@ class EmailElasticsearchIntegrationTest {
                 email.getErrorMessage()
                         .contains("SMTP unavailable")
         );
+
+        assertTrue(
+                email.getErrorMessage()
+                        .contains("MailSendException")
+        );
     }
 
     @Test
@@ -222,10 +232,36 @@ class EmailElasticsearchIntegrationTest {
 
     @Test
     void shouldThrowWhenEmailDoesNotExist() {
-        assertThrows(
-                IllegalArgumentException.class,
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
                 () -> emailService.findById("nonexistent-id")
         );
+
+        assertEquals(
+                HttpStatus.NOT_FOUND,
+                exception.getStatusCode()
+        );
+    }
+
+    @Test
+    void shouldReturnPaginatedEmailsFromRealElasticsearch() {
+        emailService.sendEmail(createMessage());
+        emailService.sendEmail(createMessage());
+        emailService.sendEmail(createMessage());
+
+        refreshIndex();
+
+        Page<EmailData> firstPage = emailService.findAll(0, 2);
+        Page<EmailData> secondPage = emailService.findAll(1, 2);
+
+        assertEquals(3, firstPage.getTotalElements());
+        assertEquals(2, firstPage.getTotalPages());
+
+        assertEquals(2, firstPage.getContent().size());
+        assertEquals(1, secondPage.getContent().size());
+
+        assertEquals(0, firstPage.getNumber());
+        assertEquals(1, secondPage.getNumber());
     }
 
     private EmailMessage createMessage() {
