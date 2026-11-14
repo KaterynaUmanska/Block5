@@ -180,10 +180,6 @@ public class EmailService {
         return emailRepository.findAll(pageable);
     }
 
-    public List<EmailData> findAll() {
-        return findAll(0, MAX_PAGE_SIZE).getContent();
-    }
-
     public EmailData findById(String id) {
         return emailRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
