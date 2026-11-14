@@ -48,7 +48,7 @@ public class EmailService {
                 .recipient(message.getRecipient().trim())
                 .subject(message.getSubject())
                 .content(message.getContent())
-                .status(EmailStatus.FAILED)
+                .status(EmailStatus.PENDING)
                 .attemptCount(0)
                 .createdAt(Instant.now())
                 .build();

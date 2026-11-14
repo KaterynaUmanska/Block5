@@ -83,7 +83,7 @@ class EmailServiceIntegrationTest {
 
         EmailData initial = savedSnapshots.get(0);
 
-        assertEquals(EmailStatus.FAILED, initial.getStatus());
+        assertEquals(EmailStatus.PENDING, initial.getStatus());
         assertEquals(0, initial.getAttemptCount());
         assertNull(initial.getErrorMessage());
         assertNull(initial.getLastAttemptAt());
