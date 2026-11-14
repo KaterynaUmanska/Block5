@@ -1,3 +1,4 @@
+
 package org.example.block5.messaging;
 
 import lombok.Builder;
@@ -15,4 +16,7 @@ public class EmailMessage {
 
     private String content;
 
+    private String source;
+
+    private Long sourceId;
 }
