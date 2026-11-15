@@ -163,6 +163,39 @@ Block5 отримує повідомлення асинхронно.
 
 Таким чином, Block2 не виконує SMTP-відправлення самостійно, а передає цю відповідальність окремому мікросервісу.
 
+Block2 запускається окремо від Docker Compose Block5.
+
+Перед запуском необхідно:
+
+1. Запустити PostgreSQL та переконатися, що база даних purchase_db доступна.
+2. Запустити RabbitMQ за допомогою Docker Compose у репозиторії Block5.
+3. Налаштувати підключення Block2 до PostgreSQL та RabbitMQ.
+4. Вказати адресу отримувача email-повідомлень.
+
+Приклад змінних середовища для Block2:
+
+```
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USERNAME=rabbit
+RABBITMQ_PASSWORD=secret
+
+EMAIL_NOTIFICATION_RECIPIENT=admin@example.com
+EMAIL_RABBIT_EXCHANGE=email-created-exchange
+```
+
+Значення EMAIL_NOTIFICATION_RECIPIENT потрібно замінити на реальну email-адресу.
+
+Після успішного запуску Block2 доступний за адресою `http://localhost:8080`.
+
+Під час створення нового PurchaseRecord Block2 публікує повідомлення до RabbitMQ exchange email-created-exchange.
+
+Email Service отримує повідомлення з черги email-service-queue, зберігає його в Elasticsearch та виконує SMTP-відправлення.
+
+Для перевірки необхідно створити PurchaseRecord через API Block2, використовуючи існуючий Material і коректні дані запиту.
+
+Після цього результат можна перевірити через API Email Service або Kibana.
+
 ## Налаштування
 
 ### Необхідне програмне забезпечення
