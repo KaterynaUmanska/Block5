@@ -366,15 +366,3 @@ GET http://localhost:8085/api/emails
 GET http://localhost:8085/api/emails/{id}
 ```
 
-## Додаткова інформація
-
-- RabbitMQ Management: http://localhost:15672
-- Elasticsearch: http://localhost:9200
-- Kibana: http://localhost:5601
-- Email Service: http://localhost:8085
-- Elasticsearch index: email-messages
-
-Для перегляду повідомлень у Kibana необхідно
-створити Data View для індексу email-messages
-та відкрити розділ Discover.
-
