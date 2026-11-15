@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
 
 @Testcontainers
 @SpringBootTest(properties = {
-        "spring.task.scheduling.enabled=false",
+        "email.scheduling.enabled=false",
         "spring.elasticsearch.uris=http://localhost:9200",
         "spring.data.elasticsearch.repositories.enabled=false"
 })

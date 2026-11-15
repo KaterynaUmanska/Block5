@@ -191,6 +191,16 @@ SMTP_PORT=587
 SMTP_USERNAME=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
 ```
+Для Gmail необхідно використовувати пароль додатка (App Password), а не звичайний пароль облікового запису.
+
+RABBITMQ_USERNAME - користувач RabbitMQ.
+
+RABBITMQ_PASSWORD - пароль RabbitMQ.
+
+EMAIL_RETRY_MAX_ATTEMPTS - максимальна кількість спроб відправлення. 0 означає відсутність обмеження.
+
+EMAIL_PENDING_RECOVERY_DELAY - час очікування перед відновленням PENDING у мілісекундах. 
+За замовчуванням -600000 (10 хвилин).
 
 ## Запуск через Docker Compose
 

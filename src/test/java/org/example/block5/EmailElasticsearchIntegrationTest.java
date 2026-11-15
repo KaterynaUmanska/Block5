@@ -36,7 +36,7 @@ import static org.mockito.Mockito.*;
 @SpringBootTest(properties = {
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.rabbitmq.listener.direct.auto-startup=false",
-        "spring.task.scheduling.enabled=false",
+        "email.scheduling.enabled=false",
         "spring.mail.host=localhost",
         "email.retry.max-attempts=0"
 })
