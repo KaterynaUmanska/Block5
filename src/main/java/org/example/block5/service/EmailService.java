@@ -41,6 +41,9 @@ public class EmailService {
     @Value("${email.retry.max-attempts:0}")
     private int maxAttempts;
 
+    @Value("${email.pending.recovery-delay:600000}")
+    private long pendingRecoveryDelay;
+
     public void sendEmail(EmailMessage message) {
         validate(message);
 
@@ -187,4 +190,61 @@ public class EmailService {
                         "Email not found: " + id
                 ));
     }
+
+    public void recoverPendingEmails() {
+        Instant cutoff = Instant.now()
+                .minusMillis(pendingRecoveryDelay);
+
+        List<String> pendingIds = new ArrayList<>();
+
+        int pageNumber = 0;
+        Page<EmailData> page;
+
+        do {
+            page = emailRepository.findAllByStatusAndCreatedAtBefore(
+                    EmailStatus.PENDING,
+                    cutoff,
+                    PageRequest.of(pageNumber, RETRY_BATCH_SIZE)
+            );
+
+            for (EmailData email : page.getContent()) {
+                if (canRetry(email)) {
+                    pendingIds.add(email.getId());
+                }
+            }
+
+            pageNumber++;
+        } while (page.hasNext());
+
+        log.info(
+                "Found {} stale PENDING emails eligible for recovery",
+                pendingIds.size()
+        );
+
+        for (String id : pendingIds) {
+            try {
+                recoverPendingEmail(id, cutoff);
+            } catch (Exception exception) {
+                log.error(
+                        "Failed to recover PENDING email id {}",
+                        id,
+                        exception
+                );
+            }
+        }
+    }
+
+    private void recoverPendingEmail(String id, Instant cutoff) {
+        emailRepository.findById(id).ifPresent(email -> {
+            if (email.getStatus() != EmailStatus.PENDING
+                    || email.getCreatedAt() == null
+                    || !email.getCreatedAt().isBefore(cutoff)
+                    || !canRetry(email)) {
+                return;
+            }
+
+            processEmail(email);
+        });
+    }
+
 }

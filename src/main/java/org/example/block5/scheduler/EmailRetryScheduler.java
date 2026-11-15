@@ -1,8 +1,9 @@
+
 package org.example.block5.scheduler;
 
-import org.example.block5.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.block5.service.EmailService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -15,9 +16,11 @@ public class EmailRetryScheduler {
 
     @Scheduled(fixedDelayString = "${email.retry.delay:300000}")
     public void retryFailedEmails() {
-        log.info("Starting failed email retry task");
+        log.info("Starting email retry and recovery task");
 
         emailService.retryFailedEmails();
-    }
+        emailService.recoverPendingEmails();
 
+        log.info("Email retry and recovery task completed");
+    }
 }

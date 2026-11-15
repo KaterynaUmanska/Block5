@@ -570,4 +570,105 @@ class EmailServiceIntegrationTest {
                 .lastAttemptAt(email.getLastAttemptAt())
                 .build();
     }
+
+
+    @Test
+    void shouldRecoverStalePendingEmail() {
+        ReflectionTestUtils.setField(
+                emailService,
+                "pendingRecoveryDelay",
+                600_000L
+        );
+
+        EmailData pending = EmailData.builder()
+                .id("pending-1")
+                .recipient("test@example.com")
+                .subject("Subject")
+                .content("Content")
+                .status(EmailStatus.PENDING)
+                .attemptCount(0)
+                .createdAt(Instant.now().minusSeconds(1200))
+                .build();
+
+        when(emailRepository.findAllByStatusAndCreatedAtBefore(
+                eq(EmailStatus.PENDING),
+                any(Instant.class),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(pending)));
+
+        when(emailRepository.findById("pending-1"))
+                .thenReturn(Optional.of(pending));
+
+        emailService.recoverPendingEmails();
+
+        assertEquals(EmailStatus.SENT, pending.getStatus());
+        assertEquals(1, pending.getAttemptCount());
+        assertNotNull(pending.getLastAttemptAt());
+
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void shouldNotRecoverRecentPendingEmail() {
+        ReflectionTestUtils.setField(
+                emailService,
+                "pendingRecoveryDelay",
+                600_000L
+        );
+
+        when(emailRepository.findAllByStatusAndCreatedAtBefore(
+                eq(EmailStatus.PENDING),
+                any(Instant.class),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        emailService.recoverPendingEmails();
+
+        verifyNoInteractions(mailSender);
+    }
+
+    @Test
+    void shouldMarkPendingAsFailedWhenRecoveryFails() {
+        ReflectionTestUtils.setField(
+                emailService,
+                "pendingRecoveryDelay",
+                600_000L
+        );
+
+        EmailData pending = EmailData.builder()
+                .id("pending-2")
+                .recipient("test@example.com")
+                .subject("Subject")
+                .content("Content")
+                .status(EmailStatus.PENDING)
+                .attemptCount(0)
+                .createdAt(Instant.now().minusSeconds(1200))
+                .build();
+
+        when(emailRepository.findAllByStatusAndCreatedAtBefore(
+                eq(EmailStatus.PENDING),
+                any(Instant.class),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(pending)));
+
+        when(emailRepository.findById("pending-2"))
+                .thenReturn(Optional.of(pending));
+
+        doThrow(new MailSendException("SMTP unavailable"))
+                .when(mailSender)
+                .send(any(SimpleMailMessage.class));
+
+        emailService.recoverPendingEmails();
+
+        assertEquals(EmailStatus.FAILED, pending.getStatus());
+        assertEquals(1, pending.getAttemptCount());
+
+        assertTrue(
+                pending.getErrorMessage()
+                        .contains("SMTP unavailable")
+        );
+
+        assertNotNull(pending.getLastAttemptAt());
+    }
+
 }

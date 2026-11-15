@@ -13,6 +13,7 @@ import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.mockito.InOrder;
 
 class EmailInfrastructureTest {
 
@@ -53,20 +54,22 @@ class EmailInfrastructureTest {
         );
     }
 
+
     @Test
     void schedulerShouldCallRetryService() {
         EmailService emailService = mock(EmailService.class);
-
         EmailRetryScheduler scheduler =
                 new EmailRetryScheduler(emailService);
 
         scheduler.retryFailedEmails();
 
-        verify(emailService, times(1))
-                .retryFailedEmails();
+        InOrder inOrder = inOrder(emailService);
 
-        verifyNoMoreInteractions(emailService);
+        inOrder.verify(emailService).retryFailedEmails();
+        inOrder.verify(emailService).recoverPendingEmails();
+        inOrder.verifyNoMoreInteractions();
     }
+
 
     @Test
     void schedulerShouldHaveFiveMinuteDelay() throws Exception {
